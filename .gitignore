@@ -1,0 +1,11 @@
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+Id/DatabasePass/
+
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+*.log
