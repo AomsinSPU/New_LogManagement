@@ -1,0 +1,30 @@
+{
+  "source": "api",
+  "filename": "batch.json",
+  "records": [
+    {
+      "source": "api",
+      "event_type": "authentication",
+      "event_subtype": "login_failed",
+      "action": "login",
+      "outcome": "failure",
+      "severity": 5,
+      "message": "Login failed for demo user",
+      "src_ip": "203.0.113.10",
+      "user": "demo-user",
+      "tags": ["demo"]
+    },
+    {
+      "source": "api",
+      "event_type": "authentication",
+      "event_subtype": "login_success",
+      "action": "login",
+      "outcome": "success",
+      "severity": 1,
+      "message": "Login succeeded for demo user",
+      "src_ip": "203.0.113.20",
+      "user": "demo-user",
+      "tags": ["demo"]
+    }
+  ]
+}

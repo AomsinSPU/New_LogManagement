@@ -8,6 +8,7 @@ import { createAuthRouter } from './modules/auth/auth.routes.js';
 import { createIngestKeysRouter } from './modules/ingest-keys/ingest-keys.routes.js';
 import { createIngestRouter } from './modules/ingest/ingest.routes.js';
 import { createLogsRouter } from './modules/logs/logs.routes.js';
+import { createImportsRouter } from './modules/imports/imports.routes.js';
 
 export function createApp({ config, checkDatabase, pool, isShuttingDown = () => false }) {
   const app = express();
@@ -34,6 +35,7 @@ export function createApp({ config, checkDatabase, pool, isShuttingDown = () => 
   if (pool) app.use('/ingest-keys', createIngestKeysRouter({ pool, config }));
   if (pool) app.use('/ingest', createIngestRouter({ pool }));
   if (pool) app.use('/logs', createLogsRouter({ pool }));
+  if (pool) app.use('/imports', createImportsRouter({ pool, config }));
   app.use(notFound);
   app.use(errorHandler);
   return app;

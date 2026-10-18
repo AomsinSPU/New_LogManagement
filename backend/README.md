@@ -189,7 +189,7 @@ body-parser เก็บ original decoded JSON text ไว้เป็น raw �
 ไม่รับ raw จาก client; JSON limit 1 MB, metadata 64 KB, tags สูงสุด 32 รายการ
 
 นี่คือ common JSON ingestion ไม่ใช่ vendor-native parsers: แม้ source ระบุ ad/aws ได้ ข้อมูลต้องอยู่ใน common schema
-ยังไม่รองรับ batch, file upload, Syslog หรือ deduplication; ส่ง event เดิมซ้ำจะสร้าง log ใหม่
+Single-event endpoint ไม่รับ array; ใช้ batch/import endpoints ด้านล่างสำหรับหลาย records ยังไม่มี Syslog หรือ deduplication
 ไฟล์ `e:\Port\New_LogManagement\backend\tests\ingest.test.js` ตรวจ normalization/validation
 ไฟล์ `e:\Port\New_LogManagement\backend\tests\ingest-keys.integration.js` ตรวจ HTTP ingest กับ PostgreSQL เพิ่มเติม
 รวม raw preservation, tenant/key provenance, revoked keys, source permissions และ rejected records ที่ไม่ถูกบันทึก
@@ -213,6 +213,33 @@ ID ที่ไม่มีหรือเป็นของ tenant อื่น
 ไฟล์ `e:\Port\New_LogManagement\backend\tests\logs.test.js` ตรวจ query validation และ parameterized filters
 ไฟล์ `e:\Port\New_LogManagement\backend\tests\ingest-keys.integration.js` ทดสอบ ingest → list/detail
 พร้อม filters, full-text search, pagination, Viewer access และ cross-tenant isolation บน PostgreSQL จริง
+
+## Batch และ JSON file import
+
+ไฟล์ `e:\Port\New_LogManagement\backend\src\modules\ingest\batch.service.js` ตรวจ envelope และ records
+ใช้ normalization/repository เดิมร่วมกัน สร้าง batch และบันทึก accepted records ใน transaction เดียว
+POST /ingest/batch ใช้ Bearer key; source ต้องอยู่ใน allowed_sources
+ไฟล์ `e:\Port\New_LogManagement\backend\src\modules\imports\imports.routes.js` มี POST /imports และ GET /imports/:id
+ใช้ Admin session และ Origin สำหรับ POST; จำกัด batch detail ด้วย tenant จาก session
+
+ทั้งสอง POST รับ application/json รูปแบบ { source, filename (optional), records: [...] }
+records แต่ละตัวต้องเป็น common-schema event และ source ตรงกับ envelope; ไม่เติม source ให้อัตโนมัติ
+ขนาด body สูงสุด 1 MB และ 1–500 records; ไม่รองรับ multipart, CSV, ZIP หรือ vendor-native JSON ในขั้นนี้
+อัปโหลดไฟล์ JSON โดยส่ง bytes ของไฟล์เป็น body application/json (Postman binary พร้อมตั้ง Content-Type)
+filename เป็น label เท่านั้น ไม่อ่าน path หรือเขียนไฟล์ลง server
+ตัวอย่างไฟล์: `e:\Port\New_LogManagement\samples\api\batch.json`
+
+ตอบ 201 หมายถึงสร้างผล batch แล้ว ไม่ได้หมายความว่าทุก record สำเร็จ ต้องอ่าน data.status และ counters:
+completed = สำเร็จทั้งหมด, partial = ถูกบางส่วน, failed = ทุก record ถูกปฏิเสธ
+error_summary เก็บสูงสุด 50 ข้อผิดพลาด โดย index เริ่มที่ 0 และไม่สะท้อน raw/secrets
+Validation errors ไม่หยุด records อื่น แต่ database error ทำให้ rollback ทั้ง batch และตอบ 500
+raw ของแต่ละ record เก็บ JSON.stringify ของ object ต้นฉบับก่อน normalize ไม่เก็บ whitespace เดิมของไฟล์
+ระบบไม่เก็บไฟล์ทั้งก้อน; ส่งซ้ำจะเกิด batch/log ใหม่ ไม่ใช่ idempotent upload
+ไม่มีการรัน migrations หรือปรับ schema เพิ่มในงานนี้
+
+ไฟล์ `e:\Port\New_LogManagement\backend\tests\batch.test.js` ตรวจขนาด envelope และ rollback
+Integration tests ใน `e:\Port\New_LogManagement\backend\tests\ingest-keys.integration.js` ครอบคลุม
+partial/completed/failed, tenant, role, source permission และ batch/log provenance
 
 ## Tests และไฟล์จัดการโปรเจกต์
 

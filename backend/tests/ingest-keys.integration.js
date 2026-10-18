@@ -133,6 +133,44 @@ try {
   assert.equal(await authenticate(), 401);
   assert.equal((await send()).status, 401);
   assert.equal(Number((await database.pool.query('SELECT count(*) FROM logs')).rows[0].count), 3);
+  const importUrl = base.replace('/ingest-keys', '/imports');
+  const batchBody = { source: 'api', filename: 'demo.json', records: [
+    { source: 'api', event_type: 'batch-test', message: 'Accepted batch record' },
+    { source: 'api', event_type: 'invalid', severity: 99 },
+    { source: 'aws', event_type: 'wrong-source' },
+  ] };
+  const importRequest = (cookie, body = batchBody) => fetch(importUrl, {
+    method: 'POST', headers: { Cookie: cookie, Origin: config.FRONTEND_ORIGIN, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  assert.equal((await importRequest(cookies[2])).status, 403);
+  const imported = await importRequest(cookies[0]);
+  assert.equal(imported.status, 201);
+  const { data: batch } = await imported.json();
+  assert.equal(batch.status, 'partial');
+  assert.equal(batch.accepted_count, 1);
+  assert.equal(batch.rejected_count, 2);
+  const batchLogs = await database.pool.query('SELECT tenant_id,ingest_key_id,raw FROM logs WHERE batch_id=$1', [batch.id]);
+  assert.equal(batchLogs.rowCount, 1);
+  assert.equal(batchLogs.rows[0].ingest_key_id, null);
+  assert.equal(batchLogs.rows[0].tenant_id, owner.tenant_id);
+  assert.equal((await fetch(importUrl + '/' + batch.id, { headers: { Cookie: cookies[1] } })).status, 404);
+  assert.equal((await fetch(importUrl + '/' + batch.id, { headers: { Cookie: cookies[0] } })).status, 200);
+  const failed = await importRequest(cookies[0], { source: 'api', records: [null] });
+  assert.equal((await failed.json()).data.status, 'failed');
+  assert.equal((await importRequest(cookies[0], { source: 'api', records: [] })).status, 400);
+  // Create another active machine key after revoking the first one.
+  const active = await (await request('POST', cookies[0], payload)).json();
+  const batchSend = body => fetch(ingestUrl + '/batch', { method: 'POST',
+    headers: { Authorization: `Bearer ${active.secret}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const machine = await batchSend({ source: 'api', records: [batchBody.records[0]] });
+  assert.equal(machine.status, 201);
+  const machineBatch = (await machine.json()).data;
+  assert.equal(machineBatch.status, 'completed');
+  const provenance = await database.pool.query('SELECT ingest_key_id FROM logs WHERE batch_id=$1', [machineBatch.id]);
+  assert.equal(provenance.rows[0].ingest_key_id, active.key.id);
+  assert.equal((await batchSend({ source: 'aws', records: [{ source: 'aws', event_type: 'test' }] })).status, 403);
+  console.log('Batch/import integration passed: partial/completed/failed results, provenance, tenant isolation, Viewer rejection and source permissions.');
   assert.equal((await request('DELETE', cookies[0], undefined, '/not-a-uuid')).status, 400);
   console.log('Ingest key integration passed: create/list/revoke, secret hashing, RBAC, tenant isolation, CSRF, repeat revoke and rejected revoked key.');
   console.log('Logs integration passed: ingest to search/detail, filters, pagination, Viewer access, tenant isolation and SQL injection input.');
