@@ -223,8 +223,8 @@ POST /ingest/batch ใช้ Bearer key; source ต้องอยู่ใน a
 ใช้ Admin session และ Origin สำหรับ POST; จำกัด batch detail ด้วย tenant จาก session
 
 ทั้งสอง POST รับ application/json รูปแบบ { source, filename (optional), records: [...] }
-records แต่ละตัวต้องเป็น common-schema event และ source ตรงกับ envelope; ไม่เติม source ให้อัตโนมัติ
-ขนาด body สูงสุด 1 MB และ 1–500 records; ไม่รองรับ multipart, CSV, ZIP หรือ vendor-native JSON ในขั้นนี้
+records แต่ละตัวต้องเป็น common-schema event หรือ vendor envelope ที่รองรับ และ source ตรงกับ batch; ไม่เติม source ให้อัตโนมัติ
+ขนาด body สูงสุด 1 MB และ 1–500 records; ไม่รองรับ multipart, CSV, ZIP หรือไฟล์ export เต็มก้อนของ vendor โดยตรง
 อัปโหลดไฟล์ JSON โดยส่ง bytes ของไฟล์เป็น body application/json (Postman binary พร้อมตั้ง Content-Type)
 filename เป็น label เท่านั้น ไม่อ่าน path หรือเขียนไฟล์ลง server
 ตัวอย่างไฟล์: `e:\Port\New_LogManagement\samples\api\batch.json`
@@ -240,6 +240,31 @@ raw ของแต่ละ record เก็บ JSON.stringify ของ object
 ไฟล์ `e:\Port\New_LogManagement\backend\tests\batch.test.js` ตรวจขนาด envelope และ rollback
 Integration tests ใน `e:\Port\New_LogManagement\backend\tests\ingest-keys.integration.js` ครอบคลุม
 partial/completed/failed, tenant, role, source permission และ batch/log provenance
+
+## Vendor JSON adapters
+
+`e:\Port\New_LogManagement\backend\src\normalizers\vendor-json.js` ตรวจ envelope และแปลงข้อมูลเป็น common schema ก่อนบันทึก
+ใช้ได้กับ POST /ingest, POST /ingest/batch และ POST /imports; common JSON เดิมยังใช้ได้
+รูปแบบ record คือ `{ "format": "vendor", "source": "ad", "data": { "EventID": 4625 } }`
+ใน batch ให้ใส่ envelope นี้เป็นสมาชิกของ records และระบุ source ชั้นนอกให้ตรงกัน
+
+ขอบเขตที่ทดสอบเป็น JSON subsets ไม่ใช่ parser ของ vendor exports ทุกแบบ:
+- AD: flat JSON EventID 4624/4625, TimeCreated, TargetUserName, IpAddress, Computer; ไม่รับ Windows XML หรือ nested EventData
+- AWS: CloudTrail record เดี่ยวที่มี eventName; ConsoleLogin ใช้ responseElements.ConsoleLogin/errorCode หา outcome; ไม่แกะ Records wrapper ให้อัตโนมัติ
+- M365: Operation, CreationTime, UserId, ClientIP, ResultStatus; CreationTime ISO ที่ไม่มี timezone ตีความเป็น UTC; ไม่แกะ AuditData string
+- CrowdStrike: synthetic DetectionSummary fixture ของโปรเจกต์เท่านั้น ไม่ใช่การรับรอง Falcon native export; severity ต้องอยู่ช่วง 0–10
+- IP ที่ไม่ใช่ literal IPv4/IPv6 ไม่ใส่ src_ip แต่เก็บไว้ใน metadata.original และติด tag non_ip_source_address
+- ไม่ทราบ outcome ใช้ unknown; ไม่อนุมานว่าไม่มี error แล้วสำเร็จเสมอ
+- ไม่มี timestamp ใช้เวลารับและ timestamp_inferred; timestamp ผิดรูปแบบถูกปฏิเสธ
+- metadata.original เก็บ payload เดิม; raw เก็บ envelope ต้นฉบับตาม pipeline เดิม
+
+ตัวอย่างไฟล์อยู่ที่ `e:\Port\New_LogManagement\samples\ad\batch.json`,
+`e:\Port\New_LogManagement\samples\aws\batch.json`,
+`e:\Port\New_LogManagement\samples\m365\batch.json` และ
+`e:\Port\New_LogManagement\samples\crowdstrike\batch.json`
+ทั้งหมดเป็นข้อมูลจำลอง ไม่ใช่ข้อมูลลูกค้าจริง และตั้งใจเว้นเวลาเพื่อใช้ทดสอบกับเวลาปัจจุบัน
+`e:\Port\New_LogManagement\backend\tests\vendor-json.test.js` ตรวจ mappings/invalid input;
+integration tests ตรวจการบันทึกทั้งสี่ sources พร้อม tenant, raw และ metadata ในฐานข้อมูลชั่วคราว
 
 ## Tests และไฟล์จัดการโปรเจกต์
 

@@ -171,6 +171,24 @@ try {
   assert.equal(provenance.rows[0].ingest_key_id, active.key.id);
   assert.equal((await batchSend({ source: 'aws', records: [{ source: 'aws', event_type: 'test' }] })).status, 403);
   console.log('Batch/import integration passed: partial/completed/failed results, provenance, tenant isolation, Viewer rejection and source permissions.');
+  for (const source of ['ad','aws','m365','crowdstrike']) {
+    const fixture = JSON.parse(await readFile(new URL(`../../samples/${source}/batch.json`, import.meta.url), 'utf8'));
+    const response = await importRequest(cookies[0], fixture);
+    assert.equal(response.status, 201);
+    const batch = (await response.json()).data;
+    assert.equal(batch.accepted_count, 1);
+    const { rows: [event] } = await database.pool.query('SELECT * FROM logs WHERE batch_id=$1', [batch.id]);
+    assert.equal(event.source, source);
+    assert.equal(event.tenant_id, owner.tenant_id);
+    assert.equal(event.actor_user, source === 'm365' ? 'alice@example.invalid' : 'alice');
+    assert.ok(event.metadata.original);
+    assert.deepEqual(JSON.parse(event.raw), fixture.records[0]);
+  }
+  const vendorResponse = await fetch(ingestUrl, { method: 'POST',
+    headers: { Authorization: `Bearer ${active.secret}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ format: 'vendor', source: 'ad', data: { EventID: 4625, TargetUserName: 'single' } }) });
+  assert.equal(vendorResponse.status, 201);
+  console.log('Vendor parsing integration passed for AD/AWS/M365/CrowdStrike batch imports and single-event AD.');
   assert.equal((await request('DELETE', cookies[0], undefined, '/not-a-uuid')).status, 400);
   console.log('Ingest key integration passed: create/list/revoke, secret hashing, RBAC, tenant isolation, CSRF, repeat revoke and rejected revoked key.');
   console.log('Logs integration passed: ingest to search/detail, filters, pagination, Viewer access, tenant isolation and SQL injection input.');

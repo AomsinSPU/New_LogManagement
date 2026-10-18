@@ -1,0 +1,10 @@
+{
+  "source": "aws",
+  "filename": "aws-demo.json",
+  "records": [{ "format": "vendor", "source": "aws", "data": {
+    "eventName": "ConsoleLogin", "eventSource": "signin.amazonaws.com",
+    "sourceIPAddress": "203.0.113.20", "awsRegion": "ap-southeast-1",
+    "userIdentity": { "userName": "alice", "accountId": "000000000000" },
+    "responseElements": { "ConsoleLogin": "Failure" }
+  }}]
+}

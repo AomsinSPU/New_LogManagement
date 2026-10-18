@@ -1,0 +1,8 @@
+{
+  "source": "m365",
+  "filename": "m365-demo.json",
+  "records": [{ "format": "vendor", "source": "m365", "data": {
+    "Operation": "UserLoginFailed", "ResultStatus": "Failed", "UserId": "alice@example.invalid",
+    "ClientIP": "198.51.100.10", "Workload": "AzureActiveDirectory"
+  }}]
+}

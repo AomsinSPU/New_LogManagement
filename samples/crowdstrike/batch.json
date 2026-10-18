@@ -1,0 +1,8 @@
+{
+  "source": "crowdstrike",
+  "filename": "crowdstrike-synthetic.json",
+  "records": [{ "format": "vendor", "source": "crowdstrike", "data": {
+    "event_type": "DetectionSummary", "detection_name": "Synthetic suspicious process",
+    "severity": 8, "user": "alice", "host": "WORKSTATION01", "process": "demo.exe", "ip": "192.0.2.10"
+  }}]
+}

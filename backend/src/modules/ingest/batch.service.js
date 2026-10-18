@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ingestSchema } from './ingest.schema.js';
+import { parseRecord } from '../../normalizers/vendor-json.js';
 import { normalizeCommonJson } from '../../normalizers/common-json.js';
 import { createIngestRepository } from './ingest.repository.js';
 
@@ -15,10 +15,10 @@ export function createBatchService(pool) {
     const errors = [];
     let rejected = 0;
     input.records.forEach((record, index) => {
-      const parsed = ingestSchema.safeParse(record);
+      const parsed = parseRecord(record);
       if (!parsed.success || parsed.data.source !== input.source) {
         rejected++;
-        if (errors.length < 50) errors.push({ index, message: parsed.success ? 'Source does not match batch' : 'Invalid common-schema record' });
+        if (errors.length < 50) errors.push({ index, message: parsed.success ? 'Source does not match batch' : 'Invalid or unsupported record' });
       } else accepted.push(normalizeCommonJson(parsed.data, JSON.stringify(record)));
     });
     const client = await pool.connect();

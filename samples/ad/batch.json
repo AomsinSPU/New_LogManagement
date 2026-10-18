@@ -1,0 +1,7 @@
+{
+  "source": "ad",
+  "filename": "ad-demo.json",
+  "records": [{ "format": "vendor", "source": "ad", "data": {
+    "EventID": 4625, "TargetUserName": "alice", "IpAddress": "203.0.113.10", "Computer": "DC01"
+  }}]
+}
