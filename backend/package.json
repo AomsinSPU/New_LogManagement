@@ -1,0 +1,33 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "- Backend application: planned JavaScript / Node.js; no framework or dependencies installed yet. - Database: PostgreSQL 17 in Docker locally; Render Postgres planned for cloud. - Implemented 10 ordered SQL migrations, eight application tables and `schema_migrations`. - Added schema assertions in `e:\\Port\\New_LogManagement\\backend\\tests\\schema.sql`. - Tested every migration on a new temporary PostgreSQL database: passed. - Tested retention minimum, valid roles, multiple sessions, session expiry, batch counters,   log severity, same-tenant foreign keys, duplicate alerts, full-text search and timestamp triggers: passed. - Test rows were rolled back and the temporary database was deleted. - Main database `logmanagement` was NOT migrated and still has no tables after this task. - Demo SQL fixtures were subsequently added and tested separately; see Demo seeds below.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "db:migrate": "node scripts/migrate.js",
+    "db:seed": "node scripts/seed.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "argon2": "^0.45.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0",
+    "helmet": "^8.3.0",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

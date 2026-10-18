@@ -1,0 +1,83 @@
+e:\Port\New_LogManagement
+├── compose.yaml
+├── .env                         # ค่าจริงบนเครื่อง ห้าม commit
+├── .env.example                 # ตัวอย่าง configuration
+├── .gitignore
+├── README.md
+│
+├── backend/
+│   ├── package.json
+│   ├── Dockerfile
+│   ├── .dockerignore
+│   │
+│   ├── db/
+│   │   ├── migrations/
+│   │   │   ├── 001_create_tenants.sql
+│   │   │   ├── 002_create_users.sql
+│   │   │   ├── 003_create_ingest_keys.sql
+│   │   │   ├── 004_create_logs.sql
+│   │   │   ├── 005_create_alert_rules.sql
+│   │   │   ├── 006_create_alerts.sql
+│   │   │   └── 007_add_log_search_indexes.sql
+│   │   │
+│   │   ├── seeds/
+│   │   │   └── 001_demo_tenants.sql
+│   │   │
+│   │   └── README.md             # วิธี migrate / seed ฐานข้อมูล
+│   │
+│   ├── scripts/
+│   │   ├── migrate.js            # รัน migrations และบันทึกประวัติ
+│   │   └── seed.js               # สร้างข้อมูล demo รวมผู้ใช้
+│   │
+│   ├── src/
+│   │   ├── app.js                # ประกอบ API และ middleware
+│   │   ├── server.js             # เริ่ม HTTP server
+│   │   ├── config/
+│   │   │   └── env.js
+│   │   ├── db/
+│   │   │   └── pool.js           # การเชื่อมต่อฐานข้อมูล
+│   │   ├── middleware/
+│   │   │   ├── auth.js
+│   │   │   ├── authorize.js
+│   │   │   └── error-handler.js
+│   │   ├── modules/
+│   │   │   ├── auth/
+│   │   │   ├── tenants/
+│   │   │   ├── ingest/
+│   │   │   ├── logs/
+│   │   │   ├── dashboard/
+│   │   │   └── alerts/
+│   │   ├── normalizers/
+│   │   └── jobs/
+│   │       ├── alert-job.js
+│   │       └── retention-job.js
+│   │
+│   └── tests/
+│       ├── unit/
+│       ├── integration/
+│       └── fixtures/            # ข้อมูลเฉพาะสำหรับ tests
+│
+├── frontend/                    # React + Vite
+│   └── ...
+│
+├── ingest/
+│   ├── syslog-collector/
+│   └── simulator/
+│
+├── samples/                     # sample logs แยกตาม source
+│   ├── firewall/
+│   ├── api/
+│   ├── crowdstrike/
+│   ├── aws/
+│   ├── m365/
+│   └── ad/
+│
+├── postman/
+│   ├── logmanagement.postman_collection.json
+│   └── local.postman_environment.json
+│
+└── docs/
+    ├── architecture.md
+    ├── database.md
+    ├── setup_appliance.md
+    └── setup_saas.md
