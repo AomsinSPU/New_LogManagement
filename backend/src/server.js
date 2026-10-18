@@ -36,7 +36,7 @@ try {
   database = createDatabase(config);
   await database.check();
   if (!shuttingDown) {
-    const app = createApp({ config, checkDatabase: database.check, isShuttingDown: () => shuttingDown });
+    const app = createApp({ config, pool: database.pool, checkDatabase: database.check, isShuttingDown: () => shuttingDown });
     await new Promise((resolve, reject) => {
       server = app.listen(config.PORT, config.HOST);
       server.once('error', reject);

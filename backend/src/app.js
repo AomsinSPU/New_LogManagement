@@ -4,8 +4,12 @@ import { security } from './middleware/security.js';
 import { bodyParser, cookies } from './middleware/body-parser.js';
 import { notFound } from './middleware/not-found.js';
 import { errorHandler } from './middleware/error-handler.js';
+import { createAuthRouter } from './modules/auth/auth.routes.js';
+import { createIngestKeysRouter } from './modules/ingest-keys/ingest-keys.routes.js';
+import { createIngestRouter } from './modules/ingest/ingest.routes.js';
+import { createLogsRouter } from './modules/logs/logs.routes.js';
 
-export function createApp({ config, checkDatabase, isShuttingDown = () => false }) {
+export function createApp({ config, checkDatabase, pool, isShuttingDown = () => false }) {
   const app = express();
   app.disable('x-powered-by');
   app.use(security);
@@ -26,6 +30,10 @@ export function createApp({ config, checkDatabase, isShuttingDown = () => false 
       response.status(503).json({ status: 'not_ready' });
     }
   });
+  if (pool) app.use('/auth', createAuthRouter({ pool, config }));
+  if (pool) app.use('/ingest-keys', createIngestKeysRouter({ pool, config }));
+  if (pool) app.use('/ingest', createIngestRouter({ pool }));
+  if (pool) app.use('/logs', createLogsRouter({ pool }));
   app.use(notFound);
   app.use(errorHandler);
   return app;

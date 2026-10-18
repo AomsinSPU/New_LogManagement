@@ -11,7 +11,8 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "db:migrate": "node scripts/migrate.js",
-    "db:seed": "node scripts/seed.js"
+    "db:seed": "node scripts/seed.js",
+    "user:create-admin": "node scripts/create-admin.js"
   },
   "keywords": [],
   "author": "",

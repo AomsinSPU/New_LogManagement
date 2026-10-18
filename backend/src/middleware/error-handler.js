@@ -3,7 +3,7 @@ export function errorHandler(error, request, response, next) {
   const status = Number.isInteger(error.status) && error.status >= 400 && error.status < 500
     ? error.status : 500;
   const messages = {
-    400: 'Invalid request', 401: 'Authentication required', 403: 'Request forbidden',
+    400: 'Invalid request', 401: 'Authentication required', 403: 'Request forbidden', 404: 'Resource not found',
     409: 'Request conflict', 413: 'Request body too large', 415: 'Unsupported content type',
     429: 'Too many requests',
   };
