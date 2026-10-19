@@ -1,122 +1,49 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
+import { useEffect, useState } from 'react'
+import { api, errorText } from './api/client.js'
+import Login from './features/auth/Login.jsx'
+import Logs from './features/logs/Logs.jsx'
+import { roles } from './locales/th.js'
 import './App.css'
 
-function App() {
-  const [count, setCount] = useState(0)
-
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+export default function App() {
+  const [user, setUser] = useState(null), [loading, setLoading] = useState(true)
+  const [error, setError] = useState(''), [notice, setNotice] = useState('')
+  const [route, setRoute] = useState(location.hash.slice(1) || '/logs')
+  const [menu, setMenu] = useState(false), [busy, setBusy] = useState(false)
+  async function restore(signal) {
+    try { setUser((await api('/auth/me', { signal, expire: false })).user) }
+    catch (e) { if (e.name !== 'AbortError' && e.status !== 401) setError(errorText(e)) }
+    finally { if (!signal?.aborted) setLoading(false) }
+  }
+  useEffect(() => {
+    const controller = new AbortController()
+    api('/auth/me', { signal: controller.signal, expire: false })
+      .then(result => setUser(result.user))
+      .catch(e => { if (e.name !== 'AbortError' && e.status !== 401) setError(errorText(e)) })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    const navigate = () => { setRoute(location.hash.slice(1) || '/logs'); setMenu(false) }
+    const expired = () => { setUser(null); setNotice('เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง') }
+    window.addEventListener('hashchange', navigate); window.addEventListener('session-expired', expired)
+    return () => { controller.abort(); window.removeEventListener('hashchange', navigate); window.removeEventListener('session-expired', expired) }
+  }, [])
+  async function logout() {
+    setBusy(true); setError('')
+    try { await api('/auth/logout', { method: 'POST' }); setUser(null); setNotice('ออกจากระบบแล้ว') }
+    catch (e) { setError(errorText(e)) } finally { setBusy(false) }
+  }
+  if (loading) return <main className="session-screen" role="status">กำลังตรวจสอบการเข้าสู่ระบบ…</main>
+  if (!user && error) return <main className="session-screen"><div role="alert">{error}</div><button onClick={() => { setLoading(true); setError(''); restore() }}>ลองเชื่อมต่ออีกครั้ง</button></main>
+  if (!user) return <Login notice={notice} onLogin={value => { setUser(value); setNotice(''); setError('') }} />
+  const path = route.split('?')[0], isLogs = path === '/logs' || /^\/logs\/[^/]+$/.test(path)
+  return <div className="workspace">
+    <a className="skip-link" href="#main-content" onClick={e => { e.preventDefault(); document.getElementById('main-content').focus() }}>ข้ามไปเนื้อหา</a>
+    <aside className={`sidebar ${menu ? 'expanded' : ''}`}><a className="brand" href="#/logs"><span className="brand-mark">L</span><span>LogManage<small>ระบบจัดการบันทึกเหตุการณ์</small></span></a><p className="nav-caption">พื้นที่ทำงาน</p>
+      <nav aria-label="เมนูหลัก"><a className={isLogs ? 'active' : ''} aria-current={isLogs ? 'page' : undefined} href="#/logs">▤ <span>บันทึกเหตุการณ์</span></a><a className={path === '/account' ? 'active' : ''} aria-current={path === '/account' ? 'page' : undefined} href="#/account">◉ <span>บัญชีของฉัน</span></a></nav>
+      <div className="sidebar-footer">{roles[user.role]}<small>ข้อมูลจำกัดเฉพาะองค์กรของคุณ</small></div>
+    </aside>
+    <div className="main-area"><header className="topbar"><button className="menu-button secondary" aria-expanded={menu} onClick={() => setMenu(!menu)}>เมนู</button><div><small>องค์กรปัจจุบัน</small><strong>{user.tenant?.name || 'องค์กรของคุณ'}</strong></div><div className="identity"><span>{user.display_name}<small>{roles[user.role]}</small></span><button className="secondary" disabled={busy} onClick={logout}>{busy ? 'กำลังออก…' : 'ออกจากระบบ'}</button></div></header>
+      <main id="main-content" tabIndex={-1}>{error && <div className="error" role="alert">{error}</div>}
+        {isLogs ? <Logs key={user.id} route={route} /> : path === '/account' ? <><div className="page-title"><div><p className="eyebrow">บัญชีผู้ใช้งาน</p><h1>บัญชีของฉัน</h1><p>ข้อมูลบัญชีและองค์กรที่คุณกำลังใช้งาน</p></div></div><section className="panel account"><dl>{[['ชื่อ', user.display_name], ['อีเมล', user.email], ['บทบาท', roles[user.role]], ['องค์กร', user.tenant?.name || user.tenant_id]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><p className="muted">แบบฟอร์มเปลี่ยนรหัสผ่านจะเพิ่มในระยะหน้าจัดการบัญชี ขณะนี้ไม่มีการเปลี่ยนรหัสผ่านของคุณ</p></section></> : <section className="panel empty"><h1>ไม่พบหน้าที่ต้องการ</h1><a href="#/logs">กลับไปบันทึกเหตุการณ์</a></section>}
+      </main></div>
+  </div>
 }
-
-export default App
