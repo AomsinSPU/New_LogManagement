@@ -2,7 +2,7 @@
   "name": "backend",
   "version": "1.0.0",
   "description": "- Backend application: planned JavaScript / Node.js; no framework or dependencies installed yet. - Database: PostgreSQL 17 in Docker locally; Render Postgres planned for cloud. - Implemented 10 ordered SQL migrations, eight application tables and `schema_migrations`. - Added schema assertions in `e:\\Port\\New_LogManagement\\backend\\tests\\schema.sql`. - Tested every migration on a new temporary PostgreSQL database: passed. - Tested retention minimum, valid roles, multiple sessions, session expiry, batch counters,   log severity, same-tenant foreign keys, duplicate alerts, full-text search and timestamp triggers: passed. - Test rows were rolled back and the temporary database was deleted. - Main database `logmanagement` was NOT migrated and still has no tables after this task. - Demo SQL fixtures were subsequently added and tested separately; see Demo seeds below.",
-  "main": "index.js",
+  "main": "src/server.js",
   "directories": {
     "test": "tests"
   },
@@ -12,6 +12,11 @@
     "start": "node src/server.js",
     "db:migrate": "node scripts/migrate.js",
     "db:seed": "node scripts/seed.js",
+    "collector:syslog": "node scripts/syslog-collector.js",
+    "simulate": "node scripts/simulate.js",
+    "worker:alerts": "node scripts/alert-worker.js",
+    "db:retention": "node scripts/retention.js",
+    "test:integration": "node tests/auth.integration.js && node tests/ingest-keys.integration.js && node tests/users-retention.integration.js",
     "user:create-admin": "node scripts/create-admin.js"
   },
   "keywords": [],

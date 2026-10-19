@@ -12,7 +12,7 @@ export function buildLogFilter(tenantId, filter) {
   };
   if (filter.from) add('event_timestamp >= ?::timestamptz', filter.from);
   if (filter.to) add('event_timestamp < ?::timestamptz', filter.to);
-  const columns = { source: 'source', src_ip: 'src_ip', dst_ip: 'dst_ip', user: 'actor_user',
+  const columns = { batch_id: 'batch_id', source: 'source', src_ip: 'src_ip', dst_ip: 'dst_ip', user: 'actor_user',
     event_type: 'event_type', outcome: 'outcome', severity: 'severity' };
   for (const [field, column] of Object.entries(columns)) {
     if (filter[field] !== undefined) add(`${column} = ?`, filter[field]);

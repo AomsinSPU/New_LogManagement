@@ -1,0 +1,1 @@
+<134>1 - fw01 demo - CONNECTION - action=deny src_ip=203.0.113.10 dst_ip=192.0.2.20 src_port=54000 dst_port=443 protocol=TCP

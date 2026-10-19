@@ -36,7 +36,7 @@ export function createAuthRouter({ pool, config }) {
     remember: z.boolean().default(false),
   }).strict() }), async (request, response, next) => {
     const { email, password, remember } = request.validated.body;
-    const { rows: [user] } = await pool.query(`SELECT u.*, t.is_active AS tenant_active
+    const { rows: [user] } = await pool.query(`SELECT u.*, t.is_active AS tenant_active, t.name AS tenant_name, t.slug AS tenant_slug
       FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.email=$1`, [email]);
     let valid = false;
     const hash = user?.password_hash?.startsWith('$argon2') ? user.password_hash : await dummyHash;
@@ -62,11 +62,13 @@ export function createAuthRouter({ pool, config }) {
     } catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
     response.cookie('session', token, { ...cookie, ...(remember ? { maxAge: lifetime * 1000 } : {}) });
-    response.json({ user: { id: user.id, tenant_id: user.tenant_id, email: user.email, display_name: user.display_name, role: user.role } });
+    response.json({ user: { id: user.id, tenant_id: user.tenant_id, email: user.email, display_name: user.display_name, role: user.role,
+      tenant: { id: user.tenant_id, name: user.tenant_name, slug: user.tenant_slug } } });
   });
   router.get('/me', authenticate({ pool }), async (request, response) => {
-    const { rows: [user] } = await pool.query(`SELECT id,tenant_id,email,display_name,role FROM users
-      WHERE id=$1 AND tenant_id=$2`, [request.auth.user_id, request.auth.tenant_id]);
+    const { rows: [user] } = await pool.query(`SELECT u.id,u.tenant_id,u.email,u.display_name,u.role,
+      jsonb_build_object('id',t.id,'name',t.name,'slug',t.slug) AS tenant FROM users u JOIN tenants t ON t.id=u.tenant_id
+      WHERE u.id=$1 AND u.tenant_id=$2`, [request.auth.user_id, request.auth.tenant_id]);
     response.json({ user });
   });
   router.post('/logout', csrfProtection(config), async (request, response) => {

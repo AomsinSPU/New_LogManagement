@@ -266,6 +266,157 @@ partial/completed/failed, tenant, role, source permission และ batch/log pr
 `e:\Port\New_LogManagement\backend\tests\vendor-json.test.js` ตรวจ mappings/invalid input;
 integration tests ตรวจการบันทึกทั้งสี่ sources พร้อม tenant, raw และ metadata ในฐานข้อมูลชั่วคราว
 
+## Syslog collector (local demo)
+
+- `e:\Port\New_LogManagement\backend\src\normalizers\syslog.js`: RFC5424 subset version 1, structured-data ต้องเป็น `-`; ไม่รองรับ RFC3164, XML, quoted key/value หรือ vendor-specific formats
+- `e:\Port\New_LogManagement\backend\src\collectors\syslog.js`: UDP IPv4 receiver -> common JSON -> POST /ingest; ไม่เขียนฐานข้อมูลตรง
+- `e:\Port\New_LogManagement\backend\scripts\syslog-collector.js`: โหลด root .env และเริ่ม collector ด้วย `npm run collector:syslog`
+- `e:\Port\New_LogManagement\backend\tests\syslog.test.js`: parser และ UDP/HTTP tests; PostgreSQL end-to-end อยู่ใน ingest-keys.integration.js
+- ตัวอย่างอยู่ใน `e:\Port\New_LogManagement\samples\firewall\syslog.txt` และ `e:\Port\New_LogManagement\samples\network\syslog.txt`
+
+ตั้ง SYSLOG_INGEST_KEY เป็น secret ของ key ที่อนุญาต source ที่เลือกใน environment (ห้าม commit secret)
+ค่าที่ปรับได้: SYSLOG_HOST=127.0.0.1, SYSLOG_PORT=5514, SYSLOG_SOURCE=firewall,
+SYSLOG_ALLOWED_SENDERS=127.0.0.1 (comma-separated exact IPv4), SYSLOG_INGEST_URL=http://localhost:3000/ingest
+tenant มาจาก ingest key; หนึ่ง collector configuration ต่อ source/tenant ไม่เชื่อ tenant ในข้อความ
+ข้อความ MSG แบบ demo รับ src_ip,dst_ip,src_port,dst_port,protocol,action,user เป็น key=value ไม่มีช่องว่างในค่า
+severity mapping ของแอปจาก Syslog 0..7 เป็น [10,9,8,7,5,3,1,0]; outcome คง unknown เพราะ deny ไม่เท่ากับ authentication failure
+เวลาที่เป็น `-` ใช้ timestamp_inferred; เก็บ datagram ต้นฉบับใน metadata.syslog.raw ส่วน logs.raw เป็น JSON ที่ collector ส่ง
+
+ขอบเขตความทนทาน: จำกัด datagram 8192 bytes และ in-flight 100 requests, timeout 5 วินาที,
+ไม่มี persistent queue/retry; HTTP fail, overload และ shutdown อาจทำให้ข้อมูลสูญหาย จึงเป็น demo ไม่ใช่ reliable delivery
+UDP sender allowlist ไม่ใช่การพิสูจน์ตัวตน; อย่าเปิด receiver สู่อินเทอร์เน็ต ใช้ trusted network/firewall เท่านั้น
+collector บังคับ HTTPS นอก loopback, ไม่ตาม HTTP redirects, ไม่พิมพ์ secret/raw ลง error logs
+ยังไม่ได้เพิ่ม Docker service หรือ UDP cloud exposure; backend ต้องเปิดอยู่ก่อนเริ่มส่งข้อมูล
+
+## Simulator
+
+- `e:\Port\New_LogManagement\backend\src\simulator\simulator.js`: generate common JSON and demo Syslog, bounded sequential sending and summary
+- `e:\Port\New_LogManagement\backend\scripts\simulate.js`: CLI via `npm run simulate -- ...`; loads root .env
+- `e:\Port\New_LogManagement\backend\tests\simulator.test.js`: validation, HTTP, denied key, cancellation and UDP -> collector -> HTTP tests
+
+Run from `e:\Port\New_LogManagement\backend`. Set SIMULATOR_INGEST_KEY in root .env or process environment for HTTP (source permission required).
+No key argument is accepted, to avoid putting secrets in command history.
+
+```powershell
+npm run simulate -- --source api --count 20 --interval 1000
+npm run simulate -- --source ad --scenario failed-login --count 5 --interval 1000
+npm run simulate -- --transport udp --source firewall --count 10 --interval 500 --host 127.0.0.1 --port 5514
+```
+
+Options: transport=http|udp, source=api|ad|aws|m365|crowdstrike|firewall|network,
+scenario=mixed|failed-login, count=1..10000 (default 20), interval=10..60000 milliseconds (default 1000).
+HTTP URL defaults to http://localhost:3000/ingest; --url accepts HTTPS or loopback HTTP only, no credentials/query/fragment or redirects.
+All HTTP events are synthetic common-schema JSON, not native vendor fixtures. Time is generated per event.
+Failed-login uses one IP (203.0.113.10) and user, and only supports api/ad/aws/m365.
+Tags/metadata include simulator/run ID/sequence; repeated runs create additional logs, not idempotent records.
+HTTP accepted means response 201. UDP sent only means the local send succeeded, NOT persistence at the server.
+UDP supports firewall/network mixed only; the collector configuration determines stored source/tenant, so set it to match.
+Syslog run ID/sequence remain in the raw message. UDP port must point to a running collector, not the HTTP server.
+Summary reports attempted/accepted/sent/failed; Ctrl+C aborts waiting or HTTP requests and closes sockets.
+No retry or durable queue. Common client/auth errors and HTTP 429 stop the run; other failures count and continue.
+HTTP timeout is 5 seconds. Count is bounded; interval is a delay after each send, not a guaranteed rate.
+These commands create real demo logs in the target tenant. Do not run on production data by accident.
+Simulator only generates events; alert creation still requires the not-yet-implemented worker.
+
+## Dashboard APIs
+
+Module files under `e:\Port\New_LogManagement\backend\src\modules\dashboard`:
+- dashboard.routes.js: session and Admin/Viewer authorization, validation
+- dashboard.schema.js: shared log filters, date defaults and bounded queries
+- dashboard.controller.js / dashboard.service.js: response and authenticated tenant
+- dashboard.repository.js: tenant-scoped aggregates using the same buildLogFilter as Logs
+
+GET /dashboard/summary returns data.total, failures, successes, unknown and top_ips/top_users/top_event_types.
+Top lists contain {value,count}, exclude NULL values, sort count descending then value, and default to 10 items (-- query top=1..20).
+All summary aggregates use one SQL statement/snapshot. No raw events or secrets are returned.
+GET /dashboard/timeline returns data entries {bucket_start,bucket_end,count}, interval and range.
+Both require session cookie and return Cache-Control: no-store; ingest keys cannot read dashboards.
+
+Shared filters: from,to,source,src_ip,dst_ip,user,event_type,outcome,severity,q (message full-text).
+No tenant_id or pagination parameters accepted. Tenant is derived from session.
+Default range: last 24 hours. If only to is supplied, from is 24 hours before it; if only from is supplied, to is now.
+Response includes resolved UTC range; use that same range on /logs to compare counts.
+Range semantics: from <= event_timestamp < to; maximum 90 days.
+Timeline interval=minute|hour|day (default hour), maximum 1000 buckets; choose a coarser interval for longer periods.
+Buckets start at the exact from instant, not calendar boundaries, use fixed UTC durations, include zero counts, and clip the last bucket to to.
+For synchronized summary/timeline requests supply explicit identical from/to values.
+
+Examples: /dashboard/summary?source=api&top=5 and /dashboard/timeline?source=api&interval=hour
+Tests: `e:\Port\New_LogManagement\backend\tests\dashboard.test.js`; PostgreSQL HTTP integration is included in ingest-keys.integration.js.
+No migrations, dependencies or precomputed dashboard tables added. Query cost still depends on matching logs; load testing remains future work.
+
+## Alert rules, alerts and worker
+
+Files under `e:\Port\New_LogManagement\backend\src\modules\alerts`:
+- alerts.schema.js: rule create/patch, pagination and status validation; PATCH never applies create defaults
+- alerts.repository.js: tenant-scoped SQL and locked status transitions
+- alerts.routes.js: Admin mutations, Admin/Viewer reads, session and Origin checks
+- `e:\Port\New_LogManagement\backend\src\jobs\alert-job.js`: failed-login threshold evaluation
+- `e:\Port\New_LogManagement\backend\scripts\alert-worker.js`: standalone worker process
+
+Endpoints (session required; mutations also require configured Origin):
+GET /alert-rules, POST /alert-rules, PATCH /alert-rules/:id
+GET /alerts, GET /alerts/:id, PATCH /alerts/:id
+Lists accept limit (1..100, default 20) and offset; alerts additionally accept status.
+Cross-tenant IDs return 404. Viewer can read but cannot create/update rules or change alert status.
+
+POST /alert-rules example:
+```json
+{"name":"Repeated failed login","threshold":5,"window_seconds":300,"cooldown_seconds":300,"severity":5}
+```
+PATCH a rule with {"is_enabled":false} to disable it; no delete endpoint is exposed.
+PATCH an alert with {"status":"acknowledged"} or {"status":"resolved"}.
+Open alerts may be acknowledged or resolved directly; acknowledged may resolve; resolved cannot reopen (409).
+Repeating the current status is idempotent and retains original timestamps/actor.
+
+From `e:\Port\New_LogManagement\backend`:
+```powershell
+npm run worker:alerts -- --once
+npm run worker:alerts
+```
+Continuous mode waits 30 seconds after each completed evaluation. It is not started by npm run dev.
+Use a supervised, always-running process for deployment; on database error it exits nonzero.
+Ctrl+C/SIGTERM finishes the current evaluation, interrupts the wait and closes the pool.
+
+Detection groups authentication/failure logs by tenant and non-NULL source IP across sources.
+Time window uses ingested_at (not event_timestamp), includes start and excludes end; inactive tenants/disabled rules are skipped.
+Only logs in the current rolling window are evaluated: this is not a historical catch-up engine after long downtime.
+Rule row locks serialize evaluation across worker instances and configuration edits.
+Cooldown is per tenant/rule/IP and applies even if the previous alert is resolved.
+Latest sampled log ID prevents re-alerting unchanged evidence; a unique hash additionally prevents duplicate inserts.
+After cooldown a qualifying window must have a different latest log before another alert is created.
+Evidence keeps a rule snapshot and at most 20 newest IDs; event_count is the full count, not sample length.
+Each rule uses a transaction; if one rule fails, earlier committed rules remain and the process exits.
+No email/webhook delivery or retention job yet. No new migrations or dependencies.
+Tests: `e:\Port\New_LogManagement\backend\tests\alerts.test.js` and PostgreSQL integration in ingest-keys.integration.js.
+
+## User management and retention
+
+- `e:\Port\New_LogManagement\backend\src\modules\users\users.schema.js`: create/patch/password validation
+- `e:\Port\New_LogManagement\backend\src\modules\users\users.service.js`: transactional user management, last-admin guard, password verification and session revocation
+- `e:\Port\New_LogManagement\backend\src\modules\users\users.routes.js`: Admin user routes and authenticated password-change handlers
+- `e:\Port\New_LogManagement\backend\src\jobs\retention-job.js`: tenant retention and expired/revoked session cleanup, advisory lock, bounded batches
+- `e:\Port\New_LogManagement\backend\scripts\retention.js`: dry-run default; --apply opts into deletion
+- `e:\Port\New_LogManagement\backend\tests\users-retention.integration.js`: disposable PostgreSQL tests including concurrent demotion
+- `e:\Port\New_LogManagement\backend\FRONTEND_API.md`: frontend endpoint contract, errors, access and limitations
+
+Run all integration suites with npm run test:integration. No new migrations required.
+Retention is a one-shot command for an external scheduler; it is not automatically started with the API.
+Existing passwords/secrets are not changed by adding these APIs. Password-change tests only modify temporary test users.
+
+## Frontend readiness update
+
+Login และ GET /auth/me ส่ง user.tenant {id,name,slug} สำหรับชื่อองค์กร โดยเก็บ tenant_id เดิมไว้
+GET /imports แสดงประวัติทั้ง Admin imports และ machine batches ภายใน tenant; เฉพาะ Admin
+รองรับ limit/offset/source/status; หน้า list ไม่ส่ง error_summary ให้เรียก detail เมื่อต้องการรายละเอียด
+GET /logs รองรับ batch_id แบบ UUID เพื่อเปิดเหตุการณ์ของ batch โดยยังตรวจ tenant เสมอ
+Dashboard ใช้ shared filters จึงรองรับ batch_id เช่นกัน
+ไม่ต้องรัน migration ใหม่ และไม่มีการเปลี่ยนรหัสผ่านหรือ secrets
+API contract ฉบับ frontend อยู่ใน `e:\Port\New_LogManagement\backend\FRONTEND_API.md`
+
+ตรวจซ้ำด้วย npm test และ npm run test:integration (สร้าง/ลบฐานข้อมูลทดสอบแยก ไม่ใช้ข้อมูลหลัก)
+ความพร้อมนี้หมายถึง local MVP APIs; production deployment, least-privilege DB roles, backup/load/browser tests ยังต้องทำแยก
+
 ## Tests และไฟล์จัดการโปรเจกต์
 
 | ตำแหน่งไฟล์ | หน้าที่ |
@@ -281,4 +432,4 @@ integration tests ตรวจการบันทึกทั้งสี่ s
 | `e:\Port\New_LogManagement\backend\package-lock.json` | บันทึกเวอร์ชัน dependencies ที่ resolve สำหรับการติดตั้งซ้ำ |
 | `e:\Port\New_LogManagement\backend\README.md` | อธิบายโครงสร้างไฟล์ backend |
 
-หมายเหตุ: server มี health/readiness, auth, ingest-key management, single-event JSON ingestion และ log search/detail แล้ว ยังไม่มี dashboard APIs และไม่รัน migrations/seed อัตโนมัติ
+หมายเหตุ: server มี health/readiness, auth, users, ingest-key management, ingestion, logs, dashboard และ alert APIs แล้ว ไม่รัน migrations/seed อัตโนมัติ; alert worker และ retention ต้องรันแยก

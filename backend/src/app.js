@@ -1,4 +1,5 @@
 import express from 'express';
+import { createUsersRouter, passwordChangeHandlers } from './modules/users/users.routes.js';
 import { createCors } from './middleware/cors.js';
 import { security } from './middleware/security.js';
 import { bodyParser, cookies } from './middleware/body-parser.js';
@@ -9,6 +10,8 @@ import { createIngestKeysRouter } from './modules/ingest-keys/ingest-keys.routes
 import { createIngestRouter } from './modules/ingest/ingest.routes.js';
 import { createLogsRouter } from './modules/logs/logs.routes.js';
 import { createImportsRouter } from './modules/imports/imports.routes.js';
+import { createDashboardRouter } from './modules/dashboard/dashboard.routes.js';
+import { createAlertsRouters } from './modules/alerts/alerts.routes.js';
 
 export function createApp({ config, checkDatabase, pool, isShuttingDown = () => false }) {
   const app = express();
@@ -32,10 +35,18 @@ export function createApp({ config, checkDatabase, pool, isShuttingDown = () => 
     }
   });
   if (pool) app.use('/auth', createAuthRouter({ pool, config }));
+  if (pool) app.post('/auth/change-password', ...passwordChangeHandlers({ pool, config }));
+  if (pool) app.use('/users', createUsersRouter({ pool, config }));
   if (pool) app.use('/ingest-keys', createIngestKeysRouter({ pool, config }));
   if (pool) app.use('/ingest', createIngestRouter({ pool }));
   if (pool) app.use('/logs', createLogsRouter({ pool }));
   if (pool) app.use('/imports', createImportsRouter({ pool, config }));
+  if (pool) app.use('/dashboard', createDashboardRouter({ pool }));
+  if (pool) {
+    const { rules, alerts } = createAlertsRouters({ pool, config });
+    app.use('/alert-rules', rules);
+    app.use('/alerts', alerts);
+  }
   app.use(notFound);
   app.use(errorHandler);
   return app;

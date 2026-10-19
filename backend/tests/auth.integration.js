@@ -45,10 +45,14 @@ try {
   assert.match(cookie, /SameSite=Lax/i);
   assert.match(cookie, /Max-Age=/i);
   const sessionCookie = cookie.split(';')[0];
-  assert.equal((await result.json()).user.tenant_id, tenant.id);
+  const loggedIn = (await result.json()).user;
+  assert.equal(loggedIn.tenant_id, tenant.id);
+  assert.deepEqual(loggedIn.tenant, {id:tenant.id,name:'Auth test',slug:'auth-test'});
   result = await fetch(base + '/auth/me', { headers: { Cookie: sessionCookie } });
   assert.equal(result.status, 200);
-  assert.equal((await result.json()).user.email, email);
+  const me = (await result.json()).user;
+  assert.equal(me.email, email);
+  assert.deepEqual(me.tenant, loggedIn.tenant);
   assert.equal((await fetch(base + '/auth/logout', { method: 'POST', headers: { ...headers, Cookie: sessionCookie } })).status, 204);
   assert.equal((await fetch(base + '/auth/me', { headers: { Cookie: sessionCookie } })).status, 401);
   for (let i = 0; i < 11; i++) result = await login({ email, password: 'wrong' });

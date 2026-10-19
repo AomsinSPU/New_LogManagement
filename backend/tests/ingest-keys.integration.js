@@ -6,6 +6,9 @@ import { loadEnv } from '../src/config/env.js';
 import { createDatabase } from '../src/db/pool.js';
 import { createApp } from '../src/app.js';
 import { authenticateIngest } from '../src/middleware/ingest-auth.js';
+import dgram from 'node:dgram';
+import { startSyslogCollector } from '../src/collectors/syslog.js';
+import { runAlertJob } from '../src/jobs/alert-job.js';
 
 const config = loadEnv();
 const admin = createDatabase(config);
@@ -81,6 +84,41 @@ try {
   assert.equal(saved.raw, raw);
   assert.equal(saved.actor_user, 'alice');
   assert.ok(saved.tags.includes('timestamp_inferred'));
+  const alertBase = base.replace('/ingest-keys', '');
+  const alertRequest = (path, method = 'GET', body, cookie = cookies[0], origin = config.FRONTEND_ORIGIN) => fetch(alertBase + path, {
+    method, headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  assert.equal((await alertRequest('/alert-rules', 'POST', { name: 'Denied' }, cookies[2])).status, 403);
+  assert.equal((await alertRequest('/alert-rules', 'POST', { name: 'Denied' }, cookies[0], 'https://evil.invalid')).status, 403);
+  const ruleResponse = await alertRequest('/alert-rules','POST',{ name: 'Failed login test', threshold: 2 });
+  assert.equal(ruleResponse.status, 201);
+  const rule = (await ruleResponse.json()).data;
+  assert.equal((await runAlertJob(database.pool)).created, 0);
+  assert.equal((await alertRequest('/alert-rules/' + rule.id,'PATCH',{ threshold: 1 },cookies[1])).status, 404);
+  assert.equal((await alertRequest('/alert-rules/' + rule.id,'PATCH',{ threshold: 1 })).status, 200);
+  const runs = await Promise.all([runAlertJob(database.pool), runAlertJob(database.pool)]);
+  assert.equal(runs.reduce((sum, r) => sum + r.created, 0), 1);
+  assert.equal((await runAlertJob(database.pool)).created, 0);
+  const alert = (await (await alertRequest('/alerts')).json()).data[0];
+  assert.equal(alert.event_count, 1);
+  assert.equal(alert.evidence.latest_log_id, log.id);
+  assert.equal((await alertRequest('/alerts/' + alert.id,'GET',undefined,cookies[1])).status, 404);
+  assert.equal((await alertRequest('/alerts/' + alert.id,'PATCH',{ status: 'resolved' },cookies[2])).status, 403);
+  assert.equal((await alertRequest('/alerts/' + alert.id,'PATCH',{ status: 'acknowledged' })).status, 200);
+  assert.equal((await alertRequest('/alerts/' + alert.id,'PATCH',{ status: 'resolved' })).status, 200);
+  assert.equal((await alertRequest('/alerts/' + alert.id,'PATCH',{ status: 'acknowledged' })).status, 409);
+  // New evidence inside cooldown must not trigger another alert.
+  const extra = await database.pool.query(`INSERT INTO logs(tenant_id,event_timestamp,source,event_type,outcome,src_ip,raw)
+    VALUES($1,clock_timestamp(),'api','authentication','failure','203.0.113.10','test') RETURNING id`,[owner.tenant_id]);
+  assert.equal((await runAlertJob(database.pool)).created, 0);
+  await alertRequest('/alert-rules/' + rule.id,'PATCH',{ cooldown_seconds: 0 });
+  assert.equal((await runAlertJob(database.pool)).created, 1);
+  assert.equal((await runAlertJob(database.pool)).created, 0);
+  await alertRequest('/alert-rules/' + rule.id,'PATCH',{ is_enabled: false });
+  assert.equal((await runAlertJob(database.pool)).created, 0);
+  await database.pool.query('DELETE FROM logs WHERE id=$1',[extra.rows[0].id]);
+  console.log('Alerts integration passed: threshold, concurrent workers, cooldown, dedup, RBAC, tenant and transitions.');
   const logsUrl = base.replace('/ingest-keys', '/logs');
   const getLogs = (suffix = '', cookie = cookies[0]) => fetch(logsUrl + suffix, { headers: { Cookie: cookie } });
   assert.equal((await getLogs('', '')).status, 401);
@@ -110,6 +148,32 @@ try {
     '@timestamp': '2026-01-01T00:00:00Z', message: 'Unique searchable marker', severity: 0 }));
   assert.equal(second.status, 201);
   const secondId = (await second.json()).data.id;
+  const dashboardUrl = base.replace('/ingest-keys', '/dashboard');
+  const dashboard = (path, cookie = cookies[0]) => fetch(dashboardUrl + path, { headers: { Cookie: cookie } });
+  const range = 'from=2026-01-01T00:00:00Z&to=2026-01-01T03:00:00Z';
+  assert.equal((await dashboard('/summary', '')).status, 401);
+  assert.equal((await dashboard('/summary?tenant_id=other')).status, 400);
+  assert.equal((await dashboard('/timeline?interval=minute')).status, 400);
+  const summaryResponse = await dashboard('/summary?' + range);
+  assert.equal(summaryResponse.status, 200);
+  assert.equal(summaryResponse.headers.get('cache-control'), 'no-store');
+  const summary = (await summaryResponse.json()).data;
+  assert.equal(summary.total, 1);
+  assert.equal(summary.unknown, 1);
+  assert.deepEqual(summary.top_event_types, [{ value: 'authentication', count: 1 }]);
+  assert.deepEqual(summary.top_ips, []);
+  const timeline = await dashboard('/timeline?' + range + '&interval=hour');
+  assert.equal(timeline.status, 200);
+  assert.deepEqual((await timeline.json()).data.map(row => row.count), [1,0,0]);
+  assert.equal((await (await dashboard('/summary?' + range, cookies[1])).json()).data.total, 0);
+  assert.equal((await dashboard('/summary', cookies[2])).status, 200);
+  assert.equal((await (await dashboard('/summary?' + range + '&q=searchable&severity=0')).json()).data.total, 1);
+  assert.equal((await (await dashboard('/summary?' + range + '&source=aws')).json()).data.total, 0);
+  const currentSummary = (await (await dashboard('/summary')).json()).data;
+  assert.equal(currentSummary.total, 1);
+  assert.deepEqual(currentSummary.top_ips, [{ value: '203.0.113.10', count: 1 }]);
+  assert.deepEqual(currentSummary.top_users, [{ value: 'alice', count: 1 }]);
+  console.log('Dashboard integration passed: filters, time buckets, zero fill, roles and tenant isolation.');
   const search = await (await getLogs('?q=searchable&severity=0&from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z')).json();
   assert.equal(search.data.length, 1);
   assert.equal(search.data[0].id, secondId);
@@ -150,6 +214,18 @@ try {
   assert.equal(batch.status, 'partial');
   assert.equal(batch.accepted_count, 1);
   assert.equal(batch.rejected_count, 2);
+  const importList=await fetch(importUrl+'?limit=1&source=api&status=partial',{headers:{Cookie:cookies[0]}});
+  assert.equal(importList.status,200);
+  const history=await importList.json();
+  assert.equal(history.data[0].id,batch.id);
+  assert.equal(history.pagination.limit,1);
+  assert.equal((await fetch(importUrl,{headers:{Cookie:cookies[2]}})).status,403);
+  assert.equal((await (await fetch(importUrl,{headers:{Cookie:cookies[1]}})).json()).data.length,0);
+  assert.equal((await fetch(importUrl+'?tenant_id=other',{headers:{Cookie:cookies[0]}})).status,400);
+  const batchLogList=await (await getLogs('?batch_id='+batch.id)).json();
+  assert.equal(batchLogList.data.length,1);
+  assert.equal((await (await getLogs('?batch_id='+batch.id,cookies[1])).json()).data.length,0);
+  assert.equal((await getLogs('?batch_id=invalid')).status,400);
   const batchLogs = await database.pool.query('SELECT tenant_id,ingest_key_id,raw FROM logs WHERE batch_id=$1', [batch.id]);
   assert.equal(batchLogs.rowCount, 1);
   assert.equal(batchLogs.rows[0].ingest_key_id, null);
@@ -189,6 +265,24 @@ try {
     body: JSON.stringify({ format: 'vendor', source: 'ad', data: { EventID: 4625, TargetUserName: 'single' } }) });
   assert.equal(vendorResponse.status, 201);
   console.log('Vendor parsing integration passed for AD/AWS/M365/CrowdStrike batch imports and single-event AD.');
+  const syslogKey = await (await request('POST', cookies[0], { name: 'Syslog test', allowed_sources: ['firewall'] })).json();
+  const collector = await startSyslogCollector({ port: 0, url: ingestUrl, key: syslogKey.secret });
+  const sender = dgram.createSocket('udp4');
+  try {
+    const raw = '<134>1 - fw01 demo - CONNECTION - action=deny src_ip=203.0.113.99 dst_port=443';
+    await new Promise((resolve, reject) => sender.send(raw, collector.address.port, '127.0.0.1', e => e ? reject(e) : resolve()));
+    for (let i = 0; i < 200 && !collector.stats.forwarded && !collector.stats.failed; i++) await new Promise(r => setTimeout(r, 25));
+    assert.equal(collector.stats.forwarded, 1);
+    const response = await fetch(ingestUrl.replace(/\/ingest$/, '/logs?source=firewall&src_ip=203.0.113.99'), { headers: { Cookie: cookies[0] } });
+    assert.equal(response.status, 200);
+    const found = (await response.json()).data;
+    assert.equal(found.length, 1);
+    const { rows: [stored] } = await database.pool.query('SELECT * FROM logs WHERE id=$1', [found[0].id]);
+    assert.equal(stored.tenant_id, owner.tenant_id);
+    assert.equal(stored.ingest_key_id, syslogKey.key.id);
+    assert.equal(stored.metadata.syslog.raw, raw);
+    console.log('Syslog integration passed: UDP -> HTTP ingest -> PostgreSQL -> search.');
+  } finally { sender.close(); await collector.close(); }
   assert.equal((await request('DELETE', cookies[0], undefined, '/not-a-uuid')).status, 400);
   console.log('Ingest key integration passed: create/list/revoke, secret hashing, RBAC, tenant isolation, CSRF, repeat revoke and rejected revoked key.');
   console.log('Logs integration passed: ingest to search/detail, filters, pagination, Viewer access, tenant isolation and SQL injection input.');
