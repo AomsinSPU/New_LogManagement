@@ -1,20 +1,16 @@
-import { useEffect, useState } from 'react'
-import { api, errorText } from '../../api/client.js'
+import { useState } from 'react'
+import { useResource } from '../../api/useResource.js'
+import { navigate } from '../../utils/navigation.js'
 import { sources, outcomes } from '../../locales/th.js'
 import { formatDate, toApiTime, toThaiInput } from '../../utils/format.js'
 
 export default function Logs({ route }) {
-  const [data, setData] = useState(null), [error, setError] = useState(''), [loading, setLoading] = useState(true)
+  const [formError, setError] = useState('')
   const [revision, setRevision] = useState(0), [copied, setCopied] = useState('')
   const [path, query = ''] = route.split('?'), params = new URLSearchParams(query)
   const id = path.startsWith('/logs/') ? path.slice(6) : null
-  useEffect(() => {
-    const controller = new AbortController(); setLoading(true); setError(''); setData(null); setCopied('')
-    api(id ? `/logs/${encodeURIComponent(id)}` : `/logs?${query}`, { signal: controller.signal })
-      .then(setData).catch(e => { if (e.name !== 'AbortError') setError(errorText(e)) })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
-    return () => controller.abort()
-  }, [id, query, revision])
+  const { data, error: requestError, loading } = useResource(id ? `/logs/${encodeURIComponent(id)}` : `/logs?${query}`, revision)
+  const error = formError || requestError
   function search(event) {
     event.preventDefault()
     const form = new FormData(event.currentTarget), next = new URLSearchParams()
@@ -23,10 +19,10 @@ export default function Logs({ route }) {
         const value = String(raw).trim(); if (value) next.set(key, ['from', 'to'].includes(key) ? toApiTime(value) : value)
       }
       if (next.has('from') && next.has('to') && Date.parse(next.get('from')) >= Date.parse(next.get('to'))) { setError('เวลาเริ่มต้องอยู่ก่อนเวลาสิ้นสุด'); return }
-      location.hash = '/logs?' + next.toString(); setRevision(v => v + 1)
+      setError(''); navigate('/logs?' + next.toString()); setRevision(v => v + 1)
     } catch { setError('รูปแบบวันเวลาไม่ถูกต้อง') }
   }
-  function page(offset) { const next = new URLSearchParams(query); next.set('offset', offset); location.hash = '/logs?' + next.toString() }
+  function page(offset) { const next = new URLSearchParams(query); next.set('offset', offset); navigate('/logs?' + next.toString()) }
   async function copy(value) { try { await navigator.clipboard.writeText(value); setCopied('คัดลอกแล้ว') } catch { setCopied('คัดลอกไม่ได้ กรุณาเลือกข้อความด้วยตนเอง') } }
   const log = id ? data?.data : null
   const rawText = typeof log?.raw === 'string' ? log.raw : JSON.stringify(log?.raw ?? null, null, 2)
